@@ -10,6 +10,10 @@
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api?__path=:path*" },
     { "source": "/uploads/:path*", "destination": "/api?__path=/uploads/:path*" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/", "destination": "/index.html" },
+    { "source": "/menu", "destination": "/index.html" },
+    { "source": "/tentang", "destination": "/index.html" },
+    { "source": "/checkout", "destination": "/index.html" },
+    { "source": "/admin", "destination": "/index.html" }
   ]
 }

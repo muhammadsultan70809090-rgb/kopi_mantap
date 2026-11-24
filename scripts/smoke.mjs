@@ -104,11 +104,50 @@ check('SPA /menu = index.html', spa.status === 200 && spaHtml.includes('<div id=
 const asset = await fetch(BASE + '/images/hero.jpg');
 check('aset /images/hero.jpg', asset.status === 200);
 
+// 5b. pesanan pelanggan
+const invalidOrder = await call('/api/orders', {
+  method: 'POST',
+  body: JSON.stringify({ customerName: 'A', customerPhone: '12', items: [] }),
+});
+check('POST /api/orders tidak valid = 400', invalidOrder.status === 400, invalidOrder.body.error);
+
+const newOrder = await call('/api/orders', {
+  method: 'POST',
+  body: JSON.stringify({
+    customerName: 'Budi Santoso',
+    customerPhone: '082122190680',
+    method: 'pickup',
+    address: '',
+    note: 'less sugar',
+    items: [{ productId: 1, sizeLabel: 'Regular (250 ml)', temperature: 'Dingin', qty: 2 }],
+  }),
+});
+check('POST /api/orders = 201', newOrder.status === 201, `${newOrder.body.order?.code}`);
+check('total dihitung server = 44000', newOrder.body.order?.total === 44000, String(newOrder.body.order?.total));
+
+const orderList = await call('/api/admin/orders');
+const savedOrder = orderList.body.orders?.find((order) => order.code === newOrder.body.order?.code);
+check('GET /api/admin/orders memuat pesanan', orderList.status === 200 && Boolean(savedOrder));
+
+if (savedOrder) {
+  const statusUpdate = await call(`/api/admin/orders/${savedOrder.id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: 'diproses' }),
+  });
+  check('PATCH status pesanan', statusUpdate.status === 200 && statusUpdate.body.order.status === 'diproses');
+}
+
+const checkoutPage = await fetch(BASE + '/checkout');
+check('SPA /checkout = index.html', checkoutPage.status === 200 && (await checkoutPage.text()).includes('<div id="root">'));
+
 // 6. logout
 const logout = await call('/api/auth/logout', { method: 'POST' });
 check('logout', logout.status === 200);
 const after = await call('/api/admin/products');
 check('setelah logout = 401', after.status === 401);
+
+const afterOrders = await call('/api/admin/orders');
+check('pesanan tanpa sesi = 401', afterOrders.status === 401);
 
 console.log(results.join('\n'));
 console.log(`\n${results.filter((r) => r.startsWith('PASS')).length}/${results.length} cek lolos`);

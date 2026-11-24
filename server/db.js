@@ -19,6 +19,13 @@ const REMOTE_URL = process.env.TURSO_DATABASE_URL || '';
 const REMOTE_TOKEN = process.env.TURSO_AUTH_TOKEN || '';
 export const isRemote = Boolean(REMOTE_URL);
 
+/**
+ * Di Vercel tanpa Turso tidak ada tempat menyimpan data secara permanen.
+ * Dalam mode ini katalog publik dilayani read-only dari data seed, dan
+ * endpoint yang butuh tulis (admin, pesanan) menjawab 503 dengan pesan jelas.
+ */
+export const readOnlyCatalog = Boolean(process.env.VERCEL) && !isRemote;
+
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS admins (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,6 +49,21 @@ const SCHEMA = `
     size INTEGER NOT NULL,
     data BLOB NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL UNIQUE,
+    customer_name TEXT NOT NULL,
+    customer_phone TEXT NOT NULL,
+    method TEXT NOT NULL DEFAULT 'pickup',
+    address TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
+    items TEXT NOT NULL DEFAULT '[]',
+    total INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'baru',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
   CREATE TABLE IF NOT EXISTS products (

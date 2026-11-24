@@ -7,6 +7,7 @@ import { Home } from './pages/Home';
 import { Catalog } from './pages/Catalog';
 import { About } from './pages/About';
 import { Admin } from './pages/Admin';
+import { Checkout } from './pages/Checkout';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -24,6 +25,7 @@ function SiteLayout() {
         <Route path="/" element={<Home />} />
         <Route path="/menu" element={<Catalog />} />
         <Route path="/tentang" element={<About />} />
+        <Route path="/checkout" element={<Checkout />} />
         <Route path="*" element={<Home />} />
       </Routes>
       <Footer />

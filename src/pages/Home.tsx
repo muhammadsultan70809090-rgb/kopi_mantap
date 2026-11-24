@@ -55,6 +55,8 @@ export function Home() {
   const [featured, setFeatured] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState<Product | null>(null);
+  const [error, setError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -65,12 +67,20 @@ export function Home() {
         const picks = products.filter((product) => product.featured).slice(0, 4);
         setFeatured(picks.length > 0 ? picks : products.slice(0, 4));
       })
-      .catch(() => undefined)
+      .catch((err: Error) => {
+        if (alive) setError(err.message);
+      })
       .finally(() => alive && setLoading(false));
     return () => {
       alive = false;
     };
-  }, []);
+  }, [reloadKey]);
+
+  const retry = () => {
+    setLoading(true);
+    setError('');
+    setReloadKey((key) => key + 1);
+  };
 
   return (
     <main className="home">
@@ -177,6 +187,15 @@ export function Home() {
               Lihat semua menu
             </Link>
           </div>
+
+          {error && (
+            <div className="alert alert-error alert-inline">
+              <span>{error}</span>
+              <button type="button" className="btn btn-outline btn-sm" onClick={retry}>
+                Coba lagi
+              </button>
+            </div>
+          )}
 
           {loading ? (
             <div className="product-grid">

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
 import { WHATSAPP_NUMBER, formatRupiah } from '../types';
 import { FallbackImage } from './FallbackImage';
@@ -167,7 +168,10 @@ export function CartDrawer() {
               <span>Total pembayaran</span>
               <strong>{formatRupiah(total)}</strong>
             </div>
-            <button type="button" className="btn btn-whatsapp btn-block" onClick={checkout}>
+            <Link to="/checkout" className="btn btn-primary btn-block" onClick={() => setOpen(false)}>
+              Lanjut ke checkout
+            </Link>
+            <button type="button" className="btn btn-text btn-block" onClick={checkout}>
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path
                   d="M4 20l1.4-4.2A8 8 0 1 1 8.6 19L4 20Z"
@@ -178,7 +182,7 @@ export function CartDrawer() {
                 />
                 <path d="M9 8.5c.4 2.6 2 4.2 4.6 4.6" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
               </svg>
-              Checkout via WhatsApp
+              Pesan cepat via WhatsApp
             </button>
             <button type="button" className="btn btn-text btn-block" onClick={clearCart}>
               Kosongkan keranjang

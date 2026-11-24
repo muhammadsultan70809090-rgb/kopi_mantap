@@ -18,6 +18,7 @@ export function Catalog() {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<SortMode>('default');
   const [active, setActive] = useState<Product | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -33,7 +34,13 @@ export function Catalog() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [reloadKey]);
+
+  const retry = () => {
+    setLoading(true);
+    setError('');
+    setReloadKey((key) => key + 1);
+  };
 
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -133,7 +140,14 @@ export function Catalog() {
           )}
         </div>
 
-        {error && <div className="alert alert-error">{error}</div>}
+        {error && (
+          <div className="alert alert-error alert-inline">
+            <span>{error}</span>
+            <button type="button" className="btn btn-outline btn-sm" onClick={retry}>
+              Coba lagi
+            </button>
+          </div>
+        )}
 
         {loading ? (
           <div className="product-grid">
@@ -148,7 +162,7 @@ export function Catalog() {
               </div>
             ))}
           </div>
-        ) : filtered.length === 0 ? (
+        ) : filtered.length === 0 && !error ? (
           <div className="empty-state">
             <h3>Produk tidak ditemukan</h3>
             <p>Coba kata kunci lain atau tampilkan semua kategori.</p>

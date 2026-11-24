@@ -4,7 +4,8 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { createHash, randomBytes, timingSafeEqual, scryptSync } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { all, one, run, ready, saveUpload, getUpload } from './db.js';
+import { all, one, run, ready, saveUpload, getUpload, readOnlyCatalog } from './db.js';
+import { seedProducts } from './seed-data.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -25,6 +26,39 @@ const ah = (handler) => (req, res, next) => Promise.resolve(handler(req, res, ne
 /* ------------------------------------------------------------------ */
 
 const CATEGORIES = ['Coffee Milk', 'Espresso Based', 'Flavored Coffee', 'Non-Coffee'];
+const ORDER_STATUSES = ['baru', 'diproses', 'siap', 'selesai', 'dibatalkan'];
+
+/** Katalog read-only dari data seed saat Vercel tidak punya database. */
+function seedPublicProducts() {
+  return seedProducts.map((p, index) => ({
+    id: index + 1,
+    name: p.name,
+    category: p.category,
+    price: p.price,
+    description: p.description,
+    image: p.image,
+    inStock: true,
+    sizes: p.sizes,
+    temperatures: p.temperatures,
+    ingredients: p.ingredients,
+    tools: p.tools,
+    steps: p.steps,
+    featured: Boolean(p.featured),
+    createdAt: null,
+    updatedAt: null,
+  }));
+}
+
+function requireDatabase(_req, res, next) {
+  if (readOnlyCatalog) {
+    return res.status(503).json({
+      error:
+        'Database belum dikonfigurasi di deployment ini. Set TURSO_DATABASE_URL dan TURSO_AUTH_TOKEN di Vercel → Settings → Environment Variables, lalu redeploy.',
+      code: 'DB_NOT_CONFIGURED',
+    });
+  }
+  next();
+}
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -37,6 +71,31 @@ function parseList(value, fallback = []) {
   } catch {
     return fallback;
   }
+}
+
+function toPublicOrder(row) {
+  return {
+    id: row.id,
+    code: row.code,
+    customerName: row.customer_name,
+    customerPhone: row.customer_phone,
+    method: row.method,
+    address: row.address,
+    note: row.note,
+    items: parseList(row.items),
+    total: row.total,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function orderCode() {
+  const now = new Date();
+  const stamp = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}${String(
+    now.getDate(),
+  ).padStart(2, '0')}`;
+  return `KM-${stamp}-${randomBytes(2).toString('hex').toUpperCase()}`;
 }
 
 function toPublicProduct(row) {
@@ -156,24 +215,32 @@ function recordFailedAttempt(ip) {
 /* ------------------------------------------------------------------ */
 
 // Pastikan skema & seed siap sebelum request pertama (cold start serverless).
-app.use(ah(async (_req, _res, next) => {
-  await ready();
-  next();
-}));
+app.use(
+  ah(async (_req, _res, next) => {
+    if (!readOnlyCatalog) await ready();
+    next();
+  }),
+);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
 app.get(
   '/api/products',
   ah(async (_req, res) => {
+    if (readOnlyCatalog) return res.json({ products: seedPublicProducts(), mode: 'readonly' });
     const rows = await all('SELECT * FROM products ORDER BY featured DESC, id ASC');
-    res.json({ products: rows.map(toPublicProduct) });
+    res.json({ products: rows.map(toPublicProduct), mode: 'database' });
   }),
 );
 
 app.get(
   '/api/products/:id',
   ah(async (req, res) => {
+    if (readOnlyCatalog) {
+      const product = seedPublicProducts().find((item) => item.id === Number(req.params.id));
+      if (!product) return res.status(404).json({ error: 'Produk tidak ditemukan.' });
+      return res.json({ product });
+    }
     const row = await one('SELECT * FROM products WHERE id = ?', [Number(req.params.id)]);
     if (!row) return res.status(404).json({ error: 'Produk tidak ditemukan.' });
     res.json({ product: toPublicProduct(row) });
@@ -181,7 +248,11 @@ app.get(
 );
 
 app.get('/api/meta', (_req, res) => {
-  res.json({ categories: CATEGORIES, whatsapp: process.env.ADMIN_WHATSAPP || '6282122190680' });
+  res.json({
+    categories: CATEGORIES,
+    whatsapp: process.env.ADMIN_WHATSAPP || '6282122190680',
+    mode: readOnlyCatalog ? 'readonly' : 'database',
+  });
 });
 
 /* ------------------------------------------------------------------ */
@@ -190,6 +261,7 @@ app.get('/api/meta', (_req, res) => {
 
 app.post(
   '/api/auth/login',
+  requireDatabase,
   ah(async (req, res) => {
     const ip = req.ip || 'unknown';
     if (tooManyAttempts(ip)) {
@@ -306,6 +378,7 @@ function sanitizeProduct(body) {
 
 app.get(
   '/api/admin/products',
+  requireDatabase,
   requireAdmin,
   ah(async (_req, res) => {
     const rows = await all('SELECT * FROM products ORDER BY id ASC');
@@ -315,6 +388,7 @@ app.get(
 
 app.get(
   '/api/admin/stats',
+  requireDatabase,
   requireAdmin,
   ah(async (_req, res) => {
     const total = Number((await one('SELECT COUNT(*) AS n FROM products'))?.n ?? 0);
@@ -326,12 +400,17 @@ app.get(
     const byCategory = await all(
       'SELECT category, COUNT(*) AS n FROM products GROUP BY category ORDER BY n DESC',
     );
-    res.json({ stats: { total, inStock, outOfStock, value, byCategory } });
+    const orderTotal = Number((await one('SELECT COUNT(*) AS n FROM orders'))?.n ?? 0);
+    const orderNew = Number((await one("SELECT COUNT(*) AS n FROM orders WHERE status = 'baru'"))?.n ?? 0);
+    res.json({
+      stats: { total, inStock, outOfStock, value, byCategory, orders: { total: orderTotal, baru: orderNew } },
+    });
   }),
 );
 
 app.post(
   '/api/admin/products',
+  requireDatabase,
   requireAdmin,
   ah(async (req, res) => {
     const { errors, value } = sanitizeProduct(req.body);
@@ -363,6 +442,7 @@ app.post(
 
 app.put(
   '/api/admin/products/:id',
+  requireDatabase,
   requireAdmin,
   ah(async (req, res) => {
     const id = Number(req.params.id);
@@ -402,6 +482,7 @@ app.put(
 // Toggle stok cepat dari tabel dashboard.
 app.patch(
   '/api/admin/products/:id/stock',
+  requireDatabase,
   requireAdmin,
   ah(async (req, res) => {
     const id = Number(req.params.id);
@@ -418,12 +499,121 @@ app.patch(
 
 app.delete(
   '/api/admin/products/:id',
+  requireDatabase,
   requireAdmin,
   ah(async (req, res) => {
     const id = Number(req.params.id);
     const result = await run('DELETE FROM products WHERE id = ?', [id]);
     if (result.changes === 0) return res.status(404).json({ error: 'Produk tidak ditemukan.' });
     res.json({ ok: true });
+  }),
+);
+
+/* ------------------------------------------------------------------ */
+/* Orders                                                              */
+/* ------------------------------------------------------------------ */
+
+// Pelanggan mengirim pesanan; admin melihat dan memperbarui statusnya.
+app.post(
+  '/api/orders',
+  requireDatabase,
+  ah(async (req, res) => {
+    const customerName = String(req.body?.customerName ?? '').trim();
+    const phoneRaw = String(req.body?.customerPhone ?? '').trim();
+    const method = req.body?.method === 'delivery' ? 'delivery' : 'pickup';
+    const address = String(req.body?.address ?? '').trim();
+    const note = String(req.body?.note ?? '').trim().slice(0, 500);
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+
+    const errors = [];
+    const digits = phoneRaw.replace(/\D/g, '');
+    if (customerName.length < 2) errors.push('Nama pemesan minimal 2 karakter.');
+    if (digits.length < 9 || digits.length > 15) errors.push('Nomor WhatsApp tidak valid.');
+    if (items.length === 0) errors.push('Keranjang masih kosong.');
+    if (items.length > 40) errors.push('Terlalu banyak item dalam satu pesanan.');
+    if (method === 'delivery' && address.length < 5) errors.push('Alamat pengantaran wajib diisi.');
+    if (errors.length) return res.status(400).json({ error: errors.join(' ') });
+
+    const clean = [];
+    let total = 0;
+
+    for (const raw of items) {
+      const productId = Number(raw?.productId);
+      const qty = Math.max(1, Math.min(99, Math.round(Number(raw?.qty) || 0)));
+      const product = await one('SELECT * FROM products WHERE id = ?', [productId]);
+      if (!product) {
+        errors.push(`Produk dengan id ${raw?.productId} tidak ditemukan.`);
+        continue;
+      }
+      if (!product.in_stock) {
+        errors.push(`${product.name} sedang tidak tersedia.`);
+        continue;
+      }
+
+      // Harga dihitung ulang di server supaya total tidak bisa dimanipulasi dari browser.
+      const sizes = parseList(product.sizes);
+      const sizeLabel = String(raw?.sizeLabel || '').trim();
+      const size = sizes.find((option) => option.label === sizeLabel) || sizes[0];
+      const unitPrice = Number(product.price) + Number(size?.extra || 0);
+      const temperature = ['Panas', 'Dingin'].includes(String(raw?.temperature))
+        ? String(raw?.temperature)
+        : parseList(product.temperatures)[0] || '';
+      const lineTotal = unitPrice * qty;
+      total += lineTotal;
+      clean.push({
+        productId: product.id,
+        name: product.name,
+        sizeLabel: size?.label || 'Regular',
+        temperature,
+        qty,
+        unitPrice,
+        lineTotal,
+      });
+    }
+
+    if (errors.length || clean.length === 0) {
+      return res.status(400).json({ error: errors.join(' ') || 'Pesanan tidak valid.' });
+    }
+
+    const code = orderCode();
+    await run(
+      `INSERT INTO orders (code, customer_name, customer_phone, method, address, note, items, total, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'baru')`,
+      [code, customerName, digits, method, address, note, JSON.stringify(clean), total],
+    );
+
+    const row = await one('SELECT * FROM orders WHERE code = ?', [code]);
+    res.status(201).json({ order: toPublicOrder(row) });
+  }),
+);
+
+app.get(
+  '/api/admin/orders',
+  requireDatabase,
+  requireAdmin,
+  ah(async (_req, res) => {
+    const rows = await all('SELECT * FROM orders ORDER BY id DESC LIMIT 200');
+    res.json({ orders: rows.map(toPublicOrder) });
+  }),
+);
+
+app.patch(
+  '/api/admin/orders/:id/status',
+  requireDatabase,
+  requireAdmin,
+  ah(async (req, res) => {
+    const status = String(req.body?.status || '');
+    if (!ORDER_STATUSES.includes(status)) {
+      return res.status(400).json({ error: 'Status pesanan tidak valid.' });
+    }
+    const id = Number(req.params.id);
+    const result = await run("UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?", [
+      status,
+      id,
+    ]);
+    if (result.changes === 0) return res.status(404).json({ error: 'Pesanan tidak ditemukan.' });
+    const row = await one('SELECT * FROM orders WHERE id = ?', [id]);
+    res.json({ order: toPublicOrder(row) });
   }),
 );
 
@@ -442,7 +632,7 @@ const upload = multer({
   },
 });
 
-app.post('/api/admin/upload', requireAdmin, (req, res, next) => {
+app.post('/api/admin/upload', requireDatabase, requireAdmin, (req, res, next) => {
   upload.single('image')(req, res, (err) => {
     if (err) return res.status(400).json({ error: err.message });
     if (!req.file) return res.status(400).json({ error: 'Tidak ada file yang diunggah.' });
@@ -457,6 +647,7 @@ app.post('/api/admin/upload', requireAdmin, (req, res, next) => {
 app.get(
   '/uploads/:name',
   ah(async (req, res) => {
+    if (readOnlyCatalog) return res.status(404).json({ error: 'Gambar tidak ditemukan.' });
     const row = await getUpload(String(req.params.name));
     if (!row) return res.status(404).json({ error: 'Gambar tidak ditemukan.' });
     const buffer = toBuffer(row.data);
@@ -483,7 +674,12 @@ if (fs.existsSync(distDir)) {
 
 app.use((err, _req, res, _next) => {
   console.error(err);
-  res.status(500).json({ error: 'Terjadi kesalahan pada server.' });
+  const message = String(err?.message || '');
+  const actionable =
+    message.includes('TURSO') || message.includes('Database belum') || message.includes('libsql')
+      ? `${message} Periksa environment variable database di server.`
+      : 'Terjadi kesalahan pada server.';
+  res.status(500).json({ error: actionable });
 });
 
 export default app;

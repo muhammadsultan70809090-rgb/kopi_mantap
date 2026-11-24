@@ -13,7 +13,9 @@
     "vercel-build": "vite build",
     "typecheck": "tsc --noEmit",
     "start": "node server/index.js",
-    "serve": "npm run build && node server/index.js"
+    "serve": "npm run build && node server/index.js",
+    "sim": "node scripts/vercel-sim.mjs",
+    "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",

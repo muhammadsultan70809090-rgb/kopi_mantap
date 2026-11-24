@@ -48,6 +48,59 @@ export type AdminStats = {
   outOfStock: number;
   value: number;
   byCategory: { category: string; n: number }[];
+  orders?: { total: number; baru: number };
+};
+
+export type OrderStatus = 'baru' | 'diproses' | 'siap' | 'selesai' | 'dibatalkan';
+
+export type OrderItem = {
+  productId: number;
+  name: string;
+  sizeLabel: string;
+  temperature: string;
+  qty: number;
+  unitPrice: number;
+  lineTotal: number;
+};
+
+export type Order = {
+  id: number;
+  code: string;
+  customerName: string;
+  customerPhone: string;
+  method: 'pickup' | 'delivery';
+  address: string;
+  note: string;
+  items: OrderItem[];
+  total: number;
+  status: OrderStatus;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type OrderInput = {
+  customerName: string;
+  customerPhone: string;
+  method: 'pickup' | 'delivery';
+  address: string;
+  note: string;
+  items: { productId: number; sizeLabel: string; temperature: string; qty: number }[];
+};
+
+export const ORDER_STATUSES: OrderStatus[] = [
+  'baru',
+  'diproses',
+  'siap',
+  'selesai',
+  'dibatalkan',
+];
+
+export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
+  baru: 'Baru',
+  diproses: 'Diproses',
+  siap: 'Siap diambil',
+  selesai: 'Selesai',
+  dibatalkan: 'Dibatalkan',
 };
 
 export const CATEGORIES = [

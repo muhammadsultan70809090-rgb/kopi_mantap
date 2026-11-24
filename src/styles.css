@@ -3800,3 +3800,413 @@ textarea {
     scroll-behavior: auto !important;
   }
 }
+
+/* ==================================================================
+   Checkout
+   ================================================================== */
+
+.checkout-page {
+  padding-bottom: 4rem;
+}
+
+.checkout-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 2.2rem;
+  align-items: start;
+  padding-top: 2.5rem;
+}
+
+.checkout-form {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  padding: 2rem;
+  display: grid;
+  gap: 1.05rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.checkout-form h2 {
+  margin: 0 0 0.4rem;
+  font-size: 1.5rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.field > span,
+.field-group legend {
+  font-size: 0.86rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--espresso-700);
+}
+
+.field input,
+.field textarea,
+.field select {
+  width: 100%;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  font: inherit;
+  color: var(--ink);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.field input:focus,
+.field textarea:focus,
+.field select:focus {
+  outline: none;
+  border-color: var(--caramel);
+  box-shadow: 0 0 0 3px rgba(184, 122, 63, 0.16);
+}
+
+.field textarea {
+  resize: vertical;
+}
+
+.field.has-error input,
+.field.has-error textarea {
+  border-color: var(--danger);
+}
+
+.field-error {
+  color: var(--danger);
+  font-size: 0.8rem;
+}
+
+.field-group {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.radio-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.radio-card {
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--paper);
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.radio-card.active {
+  border-color: var(--caramel);
+  background: rgba(184, 122, 63, 0.08);
+  box-shadow: 0 0 0 2px rgba(184, 122, 63, 0.14);
+}
+
+.radio-card input {
+  margin-top: 0.25rem;
+  accent-color: var(--caramel-dark);
+}
+
+.radio-card span {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.radio-card small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.checkout-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.checkout-summary {
+  position: sticky;
+  top: calc(var(--header-h) + 1.5rem);
+  background: var(--cream);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  padding: 1.6rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.checkout-summary header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.checkout-summary header h2 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.checkout-summary header span {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.checkout-summary ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.9rem;
+}
+
+.checkout-item {
+  display: flex;
+  gap: 0.8rem;
+  padding-bottom: 0.9rem;
+  border-bottom: 1px dashed var(--line);
+}
+
+.checkout-item:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.checkout-thumb {
+  width: 62px;
+  height: 62px;
+  border-radius: 12px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.checkout-thumb.img-fallback {
+  width: 62px;
+  height: 62px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+
+.checkout-thumb.img-fallback span {
+  display: none;
+}
+
+.checkout-thumb.img-fallback svg {
+  width: 22px;
+  height: 22px;
+}
+
+.checkout-item-info {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.checkout-item-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  align-items: baseline;
+}
+
+.checkout-item-top h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.checkout-item-info p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.checkout-item-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.checkout-total-row,
+.checkout-grand-total {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.9rem;
+}
+
+.checkout-total-row {
+  color: var(--muted);
+}
+
+.checkout-grand-total {
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--line);
+  font-size: 1.05rem;
+  align-items: baseline;
+}
+
+.checkout-grand-total strong {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+}
+
+.checkout-done {
+  max-width: 640px;
+  padding: 4.5rem 0 5rem;
+  display: grid;
+  gap: 1rem;
+  justify-items: start;
+}
+
+.checkout-done h1 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 2.8rem);
+}
+
+.checkout-done p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.checkout-done-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-top: 0.6rem;
+}
+
+.checkout-done-note {
+  font-size: 0.82rem;
+}
+
+.alert-inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+/* ==================================================================
+   Pesanan di dashboard
+   ================================================================== */
+
+button.admin-nav-link {
+  width: 100%;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.nav-badge {
+  min-width: 22px;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--caramel);
+  color: var(--white);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-align: center;
+  line-height: 20px;
+}
+
+.table-customer {
+  display: grid;
+  gap: 0.15rem;
+  font-size: 0.86rem;
+}
+
+.table-customer strong {
+  font-size: 0.9rem;
+}
+
+.table-customer a {
+  color: var(--caramel-dark);
+}
+
+.table-customer .muted {
+  font-size: 0.78rem;
+}
+
+.status-select {
+  padding: 0.4rem 0.55rem;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--white);
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--ink);
+}
+
+.status-select.status-baru {
+  border-color: var(--caramel);
+  background: rgba(184, 122, 63, 0.12);
+}
+
+.status-select.status-diproses {
+  border-color: var(--espresso-500);
+  background: rgba(107, 70, 48, 0.1);
+}
+
+.status-select.status-siap {
+  border-color: #2f6f5a;
+  background: rgba(47, 111, 90, 0.1);
+}
+
+.status-select.status-selesai {
+  border-color: var(--success);
+  background: rgba(63, 107, 69, 0.12);
+}
+
+.status-select.status-dibatalkan {
+  border-color: var(--danger);
+  background: rgba(163, 52, 31, 0.1);
+  color: var(--danger);
+}
+
+@media (max-width: 900px) {
+  .checkout-grid {
+    grid-template-columns: 1fr;
+    padding-top: 1.8rem;
+  }
+
+  .checkout-summary {
+    position: static;
+    order: -1;
+  }
+
+  .checkout-form {
+    padding: 1.4rem;
+  }
+}
+
+@media (max-width: 560px) {
+  .radio-row {
+    grid-template-columns: 1fr;
+  }
+
+  .checkout-done {
+    padding-top: 2.5rem;
+  }
+}

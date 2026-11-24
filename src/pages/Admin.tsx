@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import type { AdminStats, AdminUser, Product } from '../types';
-import { CATEGORIES, WHATSAPP_NUMBER, formatRupiah } from '../types';
+import type { AdminStats, AdminUser, Order, OrderStatus, Product } from '../types';
+import { CATEGORIES, ORDER_STATUSES, ORDER_STATUS_LABELS, WHATSAPP_NUMBER, formatRupiah } from '../types';
 import { FallbackImage } from '../components/FallbackImage';
 
 type Toast = { type: 'success' | 'error'; text: string };
@@ -540,6 +540,156 @@ function ProductForm({ product, onClose, onSaved }: FormProps) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Pesanan                                                             */
+/* ------------------------------------------------------------------ */
+
+function formatOrderDate(value?: string) {
+  if (!value) return '—';
+  const iso = value.includes('T') ? value : `${value.replace(' ', 'T')}Z`;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function OrdersPanel({
+  notify,
+  onUpdated,
+}: {
+  notify: (type: Toast['type'], text: string) => void;
+  onUpdated: () => void;
+}) {
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [busyId, setBusyId] = useState<number | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const { orders: list } = await api.adminOrders();
+      setOrders(list);
+      setError('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal memuat pesanan.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const changeStatus = async (order: Order, status: OrderStatus) => {
+    setBusyId(order.id);
+    try {
+      const { order: updated } = await api.updateOrderStatus(order.id, status);
+      setOrders((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      notify('success', `${updated.code} → ${ORDER_STATUS_LABELS[updated.status]}.`);
+      onUpdated();
+    } catch (err) {
+      notify('error', err instanceof Error ? err.message : 'Gagal mengubah status pesanan.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const newCount = orders.filter((order) => order.status === 'baru').length;
+
+  return (
+    <section id="pesanan" className="panel">
+      <header className="panel-header">
+        <div>
+          <h2>Pesanan Pelanggan</h2>
+          <p>Pesanan dari halaman checkout. Ubah status untuk menandai progres.</p>
+        </div>
+        <div className="panel-tools">
+          <span className="summary-pill">
+            Baru <strong>{newCount}</strong>
+          </span>
+          <button type="button" className="btn btn-outline btn-sm" onClick={() => void load()}>
+            Muat ulang
+          </button>
+        </div>
+      </header>
+
+      {error && <div className="alert alert-error">{error}</div>}
+
+      {loading ? (
+        <div className="admin-loading">Memuat pesanan…</div>
+      ) : orders.length === 0 ? (
+        <div className="empty-state">
+          <h3>Belum ada pesanan</h3>
+          <p>Pesanan yang dikirim pelanggan lewat halaman checkout akan muncul di sini.</p>
+        </div>
+      ) : (
+        <div className="table-wrap">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Kode</th>
+                <th>Pelanggan</th>
+                <th>Pesanan</th>
+                <th>Total</th>
+                <th>Metode</th>
+                <th>Status</th>
+                <th>Waktu</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders.map((order) => (
+                <tr key={order.id}>
+                  <td>
+                    <strong>{order.code}</strong>
+                  </td>
+                  <td>
+                    <div className="table-customer">
+                      <strong>{order.customerName}</strong>
+                      <a href={`https://wa.me/${order.customerPhone}`} target="_blank" rel="noreferrer">
+                        {order.customerPhone}
+                      </a>
+                      {order.address && <span className="muted">{order.address}</span>}
+                      {order.note && <span className="muted">Catatan: {order.note}</span>}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="table-customer">
+                      {order.items.map((item) => (
+                        <span key={`${order.id}-${item.productId}-${item.sizeLabel}-${item.temperature}`}>
+                          {item.qty}× {item.name} · {item.sizeLabel}
+                          {item.temperature ? ` · ${item.temperature}` : ''}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="price-cell">{formatRupiah(order.total)}</td>
+                  <td>{order.method === 'delivery' ? 'Diantar' : 'Ambil sendiri'}</td>
+                  <td>
+                    <select
+                      className={`status-select status-${order.status}`}
+                      value={order.status}
+                      disabled={busyId === order.id}
+                      onChange={(event) => void changeStatus(order, event.target.value as OrderStatus)}
+                      aria-label={`Status pesanan ${order.code}`}
+                    >
+                      {ORDER_STATUSES.map((status) => (
+                        <option key={status} value={status}>
+                          {ORDER_STATUS_LABELS[status]}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="muted">{formatOrderDate(order.createdAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Dashboard                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -554,6 +704,7 @@ function Dashboard({ admin, onLogout }: { admin: AdminUser; onLogout: () => void
   const [busyDelete, setBusyDelete] = useState(false);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('Semua');
+  const [view, setView] = useState<'produk' | 'pesanan'>('produk');
 
   const notify = useCallback((type: Toast['type'], text: string) => {
     setToast({ type, text });
@@ -658,12 +809,21 @@ function Dashboard({ admin, onLogout }: { admin: AdminUser; onLogout: () => void
         </Link>
 
         <nav className="admin-nav" aria-label="Navigasi dashboard">
-          <a href="#ringkasan" className="admin-nav-link active">
-            <span>Ringkasan</span>
-          </a>
-          <a href="#produk" className="admin-nav-link">
-            <span>Produk</span>
-          </a>
+          <button
+            type="button"
+            className={`admin-nav-link ${view === 'produk' ? 'active' : ''}`}
+            onClick={() => setView('produk')}
+          >
+            <span>Ringkasan & Produk</span>
+          </button>
+          <button
+            type="button"
+            className={`admin-nav-link ${view === 'pesanan' ? 'active' : ''}`}
+            onClick={() => setView('pesanan')}
+          >
+            <span>Pesanan</span>
+            {stats?.orders?.baru ? <span className="nav-badge">{stats.orders.baru}</span> : null}
+          </button>
         </nav>
 
         <div className="admin-sidebar-footer">
@@ -683,7 +843,9 @@ function Dashboard({ admin, onLogout }: { admin: AdminUser; onLogout: () => void
       <div className="admin-main">
         <header className="admin-topbar">
           <div>
-            <span className="admin-breadcrumb">Dashboard / Ringkasan</span>
+            <span className="admin-breadcrumb">
+              Dashboard / {view === 'pesanan' ? 'Pesanan' : 'Ringkasan'}
+            </span>
             <h1 className="font-display">Halo, {admin.username}!</h1>
           </div>
           <div className="admin-topbar-actions">
@@ -699,6 +861,10 @@ function Dashboard({ admin, onLogout }: { admin: AdminUser; onLogout: () => void
         <div className="admin-content">
           {error && <div className="alert alert-error">{error}</div>}
 
+          {view === 'pesanan' ? (
+            <OrdersPanel notify={notify} onUpdated={() => void refreshStats()} />
+          ) : (
+          <>
           <section id="ringkasan" className="stats-grid">
             <article className="stat-card">
               <span className="stat-label">Total produk</span>
@@ -719,6 +885,13 @@ function Dashboard({ admin, onLogout }: { admin: AdminUser; onLogout: () => void
               <span className="stat-label">Nilai katalog</span>
               <strong>{stats ? formatRupiah(stats.value) : '—'}</strong>
               <span className="stat-foot">Total harga produk tersedia</span>
+            </article>
+            <article className="stat-card">
+              <span className="stat-label">Pesanan baru</span>
+              <strong>{stats?.orders ? stats.orders.baru : '—'}</strong>
+              <span className="stat-foot">
+                {stats?.orders ? `dari ${stats.orders.total} pesanan total` : 'Memuat…'}
+              </span>
             </article>
           </section>
 
@@ -843,12 +1016,14 @@ function Dashboard({ admin, onLogout }: { admin: AdminUser; onLogout: () => void
           </section>
 
           <p className="admin-footnote">
-            Pesanan pelanggan masuk ke WhatsApp admin{' '}
+            Pesanan pelanggan masuk ke tab Pesanan dan diteruskan ke WhatsApp admin{' '}
             <a href={`https://wa.me/${WHATSAPP_NUMBER}`} target="_blank" rel="noreferrer">
               0821-2219-0680
             </a>
-            . Data produk tersimpan permanen di database server.
+            . Data produk & pesanan tersimpan di database server.
           </p>
+          </>
+          )}
         </div>
       </div>
 

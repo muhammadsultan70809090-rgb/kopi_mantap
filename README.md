@@ -52,6 +52,21 @@ cookie `HttpOnly` + `SameSite=Strict` (dan `Secure` saat `NODE_ENV=production`).
 | PATCH | `/api/admin/products/:id/stock` | admin |
 | DELETE | `/api/admin/products/:id` | admin |
 | POST | `/api/admin/upload` | admin (JPG/PNG/WEBP, maks 3 MB) |
+| POST | `/api/orders` | publik (pesanan dari halaman checkout) |
+| GET | `/api/admin/orders` | admin |
+| PATCH | `/api/admin/orders/:id/status` | admin |
+
+## Alur pemesanan
+
+1. Pelanggan menambah produk dari katalog (ukuran & suhu dipilih di popup detail).
+2. Keranjang menyimpan item di `localStorage`, jumlah bisa diubah, subtotal & total otomatis.
+3. Halaman `/checkout` memvalidasi nama, nomor WhatsApp, dan alamat (jika diantar), lalu
+   `POST /api/orders`. Server **menghitung ulang harga** dari database dan menyimpan pesanan
+   dengan kode `KM-YYMMDD-XXXX` dan status `baru`.
+4. Setelah tersimpan, pelanggan mengirim ringkasan ke WhatsApp admin. Kalau database belum
+   dikonfigurasi, checkout tetap bisa diteruskan lewat WhatsApp (pesanan tidak tercatat).
+5. Admin membuka tab **Pesanan** di `/admin` untuk melihat pesanan dan mengubah status
+   (`baru` → `diproses` → `siap` → `selesai` / `dibatalkan`).
 
 ## Checkout WhatsApp
 
@@ -95,6 +110,10 @@ beserta akun admin di-seed kalau database masih kosong.
 - selain itu → `dist/` (SPA fallback ke `index.html`).
 
 Foto yang diunggah admin (maks 3 MB) disimpan sebagai BLOB di database, bukan di filesystem.
+
+Tanpa `TURSO_DATABASE_URL`, deployment Vercel berjalan dalam **mode katalog read-only**:
+`/api/products` tetap mengembalikan 12 produk bawaan (gambar statis di `dist/images`), tetapi
+login admin dan pembuatan pesanan menjawab `503 DB_NOT_CONFIGURED` dengan instruksi konfigurasi.
 
 ### Uji lokal sebelum push
 
