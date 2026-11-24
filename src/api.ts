@@ -1,4 +1,12 @@
-import type { AdminStats, AdminUser, Order, OrderInput, OrderStatus, Product } from './types';
+import type {
+  AdminStats,
+  AdminUser,
+  Order,
+  OrderInput,
+  OrderStatus,
+  Product,
+  TwoFactorStatus,
+} from './types';
 
 /** Error API dengan status & kode supaya UI bisa membedakan masalah jaringan/konfigurasi. */
 export class ApiError extends Error {
@@ -62,10 +70,10 @@ export const api = {
     return { products: Array.isArray(data.products) ? data.products : [] };
   },
 
-  login: (username: string, password: string) =>
+  login: (username: string, password: string, code?: string) =>
     request<{ admin: AdminUser }>('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, ...(code ? { code } : {}) }),
     }),
 
   logout: () => request<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
@@ -121,5 +129,24 @@ export const api = {
     request<{ order: Order }>(`/api/admin/orders/${id}/status`, {
       method: 'PATCH',
       body: JSON.stringify({ status }),
+    }),
+
+  twoFactor: () => request<{ twoFactor: TwoFactorStatus }>('/api/admin/2fa'),
+
+  startTwoFactor: () =>
+    request<{ twoFactor: TwoFactorStatus; secret: string; otpauth: string }>('/api/admin/2fa/setup', {
+      method: 'POST',
+    }),
+
+  enableTwoFactor: (code: string) =>
+    request<{ twoFactor: TwoFactorStatus }>('/api/admin/2fa/enable', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
+
+  disableTwoFactor: (password: string, code: string) =>
+    request<{ twoFactor: TwoFactorStatus }>('/api/admin/2fa/disable', {
+      method: 'POST',
+      body: JSON.stringify({ password, code }),
     }),
 };

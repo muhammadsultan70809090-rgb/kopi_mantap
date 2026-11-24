@@ -28,6 +28,22 @@ Untuk produksi, set `ADMIN_PASSWORD` (dan opsional `ADMIN_USERNAME`) sebelum see
 pertama, lalu ganti sesi/rotasi kredensial. Password disimpan sebagai hash scrypt, sesi berupa
 cookie `HttpOnly` + `SameSite=Strict` (dan `Secure` saat `NODE_ENV=production`).
 
+### Verifikasi dua langkah (2FA)
+
+2FA berbasis TOTP (RFC 6238, SHA-1, 6 digit, periode 30 detik) dan kompatibel dengan Google
+Authenticator, Authy, 1Password, dan sejenisnya. Tidak ada dependency tambahan — implementasinya
+ada di `server/totp.js`.
+
+1. Login ke `/admin` → menu **Keamanan 2FA** → **Mulai pengaturan 2FA**.
+2. Ketik kunci base32 yang muncul di aplikasi authenticator (atau salin URI `otpauth://`),
+   lalu masukkan kode 6 digit → **Aktifkan 2FA**.
+3. Login berikutnya meminta password **dan** kode authenticator. Kode yang sudah dipakai
+   ditolak (disimpan sebagai `totp_last_step`), dan setiap kode hanya berlaku ±1 langkah waktu.
+4. Untuk mematikan, buka menu yang sama dan konfirmasi dengan password admin + kode 2FA aktif.
+
+2FA bersifat opsional dan tidak aktif secara default, jadi akun demo `admin`/`admin` tetap bisa
+dipakai. Kunci 2FA disimpan di kolom `admins.totp_secret`; jaga akses ke database tetap aman.
+
 ## Stack
 
 - **Frontend**: React 18 + TypeScript + Vite, React Router, CSS kustom.
@@ -42,7 +58,7 @@ cookie `HttpOnly` + `SameSite=Strict` (dan `Secure` saat `NODE_ENV=production`).
 | --- | --- | --- |
 | GET | `/api/products` | publik |
 | GET | `/api/products/:id` | publik |
-| POST | `/api/auth/login` | publik (throttle 10 percobaan / 15 menit) |
+| POST | `/api/auth/login` | publik (throttle 10 percobaan / 15 menit, menerima `code` 2FA) |
 | POST | `/api/auth/logout` | admin |
 | GET | `/api/auth/me` | sesi |
 | GET | `/api/admin/products` | admin |
@@ -55,6 +71,10 @@ cookie `HttpOnly` + `SameSite=Strict` (dan `Secure` saat `NODE_ENV=production`).
 | POST | `/api/orders` | publik (pesanan dari halaman checkout) |
 | GET | `/api/admin/orders` | admin |
 | PATCH | `/api/admin/orders/:id/status` | admin |
+| GET | `/api/admin/2fa` | admin — status 2FA |
+| POST | `/api/admin/2fa/setup` | admin — buat kunci TOTP baru |
+| POST | `/api/admin/2fa/enable` | admin — aktifkan dengan kode dari authenticator |
+| POST | `/api/admin/2fa/disable` | admin — matikan (password + kode) |
 
 ## Alur pemesanan
 
@@ -115,12 +135,28 @@ Tanpa `TURSO_DATABASE_URL`, deployment Vercel berjalan dalam **mode katalog read
 `/api/products` tetap mengembalikan 12 produk bawaan (gambar statis di `dist/images`), tetapi
 login admin dan pembuatan pesanan menjawab `503 DB_NOT_CONFIGURED` dengan instruksi konfigurasi.
 
+### Skema database (SQL)
+
+Skema lengkap ada di **[`db/schema.sql`](db/schema.sql)** (lima tabel: `admins`, `sessions`,
+`uploads`, `orders`, `products`, plus index). File itu dihasilkan dari `server/schema.js` supaya
+selalu sama dengan yang dipakai server:
+
+```bash
+npm run db:schema                                  # regenerasi db/schema.sql
+sqlite3 data/kopimantap.db < db/schema.sql         # terapkan manual ke SQLite lokal
+turso db shell kopi-mantap < db/schema.sql         # terapkan manual ke Turso
+```
+
+Biasanya tidak perlu dijalankan manual: server membuat tabel sendiri saat start. Database lama
+(sebelum ada 2FA) dimigrasikan otomatis — kolom `totp_secret`, `totp_enabled`, dan
+`totp_last_step` ditambahkan lewat `ALTER TABLE` tanpa menghapus data.
+
 ### Uji lokal sebelum push
 
 ```bash
 npm run build
 node scripts/vercel-sim.mjs &   # meniru routing vercel.json di :3200
-node scripts/smoke.mjs          # 16 cek API, auth, CRUD, upload, SPA
+node scripts/smoke.mjs          # 33 cek API, auth, 2FA, CRUD, upload, pesanan, SPA
 ```
 
 Mau menguji jalur libSQL tanpa akun Turso? Jalankan server dengan

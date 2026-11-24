@@ -15,7 +15,8 @@
     "start": "node server/index.js",
     "serve": "npm run build && node server/index.js",
     "sim": "node scripts/vercel-sim.mjs",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "db:schema": "node scripts/export-schema.mjs"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",

@@ -42,6 +42,11 @@ export type AdminUser = {
   username: string;
 };
 
+export type TwoFactorStatus = {
+  enabled: boolean;
+  configured: boolean;
+};
+
 export type AdminStats = {
   total: number;
   inStock: number;

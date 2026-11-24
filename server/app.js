@@ -6,6 +6,7 @@ import { createHash, randomBytes, timingSafeEqual, scryptSync } from 'node:crypt
 import { fileURLToPath } from 'node:url';
 import { all, one, run, ready, saveUpload, getUpload, readOnlyCatalog } from './db.js';
 import { seedProducts } from './seed-data.js';
+import { generateSecret, otpauthUrl, verifyCode } from './totp.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -168,6 +169,16 @@ async function getSessionAdmin(req) {
   return row || null;
 }
 
+function verifyPassword(admin, password) {
+  const candidate = scryptSync(password, admin.password_salt, 64);
+  const stored = Buffer.from(admin.password_hash, 'hex');
+  return stored.length === candidate.length && timingSafeEqual(stored, candidate);
+}
+
+function twoFactorState(admin) {
+  return { enabled: Boolean(admin?.totp_enabled), configured: Boolean(admin?.totp_secret) };
+}
+
 async function requireAdmin(req, res, next) {
   const admin = await getSessionAdmin(req);
   if (!admin) return res.status(401).json({ error: 'Akses ditolak. Silakan login sebagai admin.' });
@@ -273,16 +284,30 @@ app.post(
     const password = String(req.body?.password || '');
     const admin = await one('SELECT * FROM admins WHERE username = ?', [username]);
 
-    let valid = false;
-    if (admin) {
-      const candidate = scryptSync(password, admin.password_salt, 64);
-      const stored = Buffer.from(admin.password_hash, 'hex');
-      valid = stored.length === candidate.length && timingSafeEqual(stored, candidate);
-    }
-
-    if (!valid) {
+    if (!admin || !verifyPassword(admin, password)) {
       recordFailedAttempt(ip);
       return res.status(401).json({ error: 'Username atau password salah.' });
+    }
+
+    // Verifikasi dua langkah: password benar pun tetap butuh kode authenticator.
+    if (admin.totp_enabled) {
+      const code = String(req.body?.code || '').trim();
+      if (!code) {
+        return res.status(401).json({
+          error: 'Akun ini memakai verifikasi dua langkah. Masukkan kode 6 digit dari aplikasi authenticator.',
+          code: 'TOTP_REQUIRED',
+        });
+      }
+      const step = verifyCode(admin.totp_secret, code);
+      // Kode sekali pakai: langkah waktu yang sudah dipakai tidak diterima lagi.
+      if (!step || step <= Number(admin.totp_last_step || 0)) {
+        recordFailedAttempt(ip);
+        return res.status(401).json({
+          error: 'Kode 2FA salah atau sudah pernah dipakai. Coba kode terbaru dari aplikasi authenticator.',
+          code: 'TOTP_INVALID',
+        });
+      }
+      await run('UPDATE admins SET totp_last_step = ? WHERE id = ?', [step, admin.id]);
     }
 
     loginAttempts.delete(ip);
@@ -307,6 +332,103 @@ app.get(
     const admin = await getSessionAdmin(req);
     if (!admin) return res.status(401).json({ error: 'Belum login.' });
     res.json({ admin });
+  }),
+);
+
+/* ------------------------------------------------------------------ */
+/* Verifikasi dua langkah (2FA / TOTP)                                  */
+/* ------------------------------------------------------------------ */
+
+app.get(
+  '/api/admin/2fa',
+  requireDatabase,
+  requireAdmin,
+  ah(async (req, res) => {
+    const row = await one('SELECT totp_secret, totp_enabled FROM admins WHERE id = ?', [req.admin.id]);
+    res.json({ twoFactor: twoFactorState(row) });
+  }),
+);
+
+// Buat kunci baru (status masih belum aktif sampai kode pertama diverifikasi).
+app.post(
+  '/api/admin/2fa/setup',
+  requireDatabase,
+  requireAdmin,
+  ah(async (req, res) => {
+    const row = await one('SELECT totp_secret, totp_enabled FROM admins WHERE id = ?', [req.admin.id]);
+    if (!row) return res.status(401).json({ error: 'Admin tidak ditemukan.' });
+    if (row.totp_enabled) {
+      return res
+        .status(409)
+        .json({ error: '2FA sudah aktif. Matikan dulu sebelum membuat kunci baru.' });
+    }
+
+    const secret = generateSecret();
+    await run("UPDATE admins SET totp_secret = ?, totp_enabled = 0, totp_last_step = 0 WHERE id = ?", [
+      secret,
+      req.admin.id,
+    ]);
+
+    res.json({
+      twoFactor: { enabled: false, configured: true },
+      secret,
+      otpauth: otpauthUrl(secret, req.admin.username),
+    });
+  }),
+);
+
+app.post(
+  '/api/admin/2fa/enable',
+  requireDatabase,
+  requireAdmin,
+  ah(async (req, res) => {
+    const row = await one('SELECT totp_secret, totp_enabled FROM admins WHERE id = ?', [req.admin.id]);
+    if (!row?.totp_secret) {
+      return res.status(400).json({ error: 'Belum ada kunci 2FA. Mulai pengaturan 2FA terlebih dahulu.' });
+    }
+    if (row.totp_enabled) {
+      return res.status(409).json({ error: '2FA sudah aktif.' });
+    }
+
+    const step = verifyCode(row.totp_secret, req.body?.code);
+    if (!step) {
+      return res.status(400).json({
+        error: 'Kode 2FA tidak valid. Pastikan jam perangkat benar lalu coba kode terbaru.',
+        code: 'TOTP_INVALID',
+      });
+    }
+
+    await run('UPDATE admins SET totp_enabled = 1, totp_last_step = ? WHERE id = ?', [
+      step,
+      req.admin.id,
+    ]);
+    res.json({ twoFactor: { enabled: true, configured: true } });
+  }),
+);
+
+// Mematikan 2FA butuh password + (jika aktif) kode authenticator yang valid.
+app.post(
+  '/api/admin/2fa/disable',
+  requireDatabase,
+  requireAdmin,
+  ah(async (req, res) => {
+    const row = await one('SELECT * FROM admins WHERE id = ?', [req.admin.id]);
+    if (!row) return res.status(401).json({ error: 'Admin tidak ditemukan.' });
+
+    if (!verifyPassword(row, String(req.body?.password || ''))) {
+      return res.status(401).json({ error: 'Password salah.' });
+    }
+    if (row.totp_enabled && !verifyCode(row.totp_secret, req.body?.code)) {
+      return res.status(400).json({
+        error: 'Masukkan kode 2FA yang valid untuk mematikan verifikasi dua langkah.',
+        code: 'TOTP_INVALID',
+      });
+    }
+
+    await run("UPDATE admins SET totp_secret = '', totp_enabled = 0, totp_last_step = 0 WHERE id = ?", [
+      req.admin.id,
+    ]);
+    res.json({ twoFactor: { enabled: false, configured: false } });
   }),
 );
 

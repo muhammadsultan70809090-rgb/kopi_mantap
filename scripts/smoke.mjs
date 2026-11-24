@@ -1,4 +1,6 @@
 // Smoke test untuk mode serverless (vercel-sim) + SQLite lokal.
+import { currentStep, generateCode } from '../server/totp.js';
+
 const BASE = process.env.BASE || 'http://127.0.0.1:3200';
 const results = [];
 const check = (name, ok, extra = '') => {
@@ -36,6 +38,71 @@ check('login salah = 401', badLogin.status === 401);
 
 const login = await call('/api/auth/login', { method: 'POST', body: JSON.stringify({ username: 'admin', password: 'admin' }) });
 check('login benar = 200', login.status === 200);
+
+// 2b. verifikasi dua langkah (TOTP)
+const twoFaDefault = await call('/api/admin/2fa');
+check(
+  'GET /api/admin/2fa default nonaktif',
+  twoFaDefault.status === 200 && twoFaDefault.body.twoFactor.enabled === false,
+);
+
+const setup = await call('/api/admin/2fa/setup', { method: 'POST' });
+check(
+  'POST /api/admin/2fa/setup membuat kunci',
+  setup.status === 200 && /^[A-Z2-7]{32}$/.test(setup.body.secret || ''),
+  setup.body.secret ? 'kunci 32 karakter base32' : 'tidak ada kunci',
+);
+const secret = setup.body.secret;
+
+const enableWrong = await call('/api/admin/2fa/enable', {
+  method: 'POST',
+  body: JSON.stringify({ code: generateCode(secret, currentStep() + 20) }),
+});
+check('aktifkan 2FA dengan kode salah = 400', enableWrong.status === 400);
+
+const enabledStep = currentStep();
+const enable = await call('/api/admin/2fa/enable', {
+  method: 'POST',
+  body: JSON.stringify({ code: generateCode(secret, enabledStep) }),
+});
+check('aktifkan 2FA dengan kode benar = 200', enable.status === 200 && enable.body.twoFactor.enabled === true);
+
+await call('/api/auth/logout', { method: 'POST' });
+const loginNoCode = await call('/api/auth/login', {
+  method: 'POST',
+  body: JSON.stringify({ username: 'admin', password: 'admin' }),
+});
+check(
+  'login tanpa kode 2FA = 401 TOTP_REQUIRED',
+  loginNoCode.status === 401 && loginNoCode.body.code === 'TOTP_REQUIRED',
+);
+
+const loginReused = await call('/api/auth/login', {
+  method: 'POST',
+  body: JSON.stringify({ username: 'admin', password: 'admin', code: generateCode(secret, enabledStep) }),
+});
+check('kode 2FA yang sudah dipakai ditolak', loginReused.status === 401 && loginReused.body.code === 'TOTP_INVALID');
+
+const login2fa = await call('/api/auth/login', {
+  method: 'POST',
+  body: JSON.stringify({ username: 'admin', password: 'admin', code: generateCode(secret, currentStep() + 1) }),
+});
+check('login dengan kode 2FA = 200', login2fa.status === 200 && login2fa.body.admin?.username === 'admin');
+
+const disableWrong = await call('/api/admin/2fa/disable', {
+  method: 'POST',
+  body: JSON.stringify({ password: 'salah', code: generateCode(secret) }),
+});
+check('matikan 2FA dengan password salah = 401', disableWrong.status === 401);
+
+const disable = await call('/api/admin/2fa/disable', {
+  method: 'POST',
+  body: JSON.stringify({ password: 'admin', code: generateCode(secret) }),
+});
+check(
+  'matikan 2FA dengan password + kode = 200',
+  disable.status === 200 && disable.body.twoFactor.enabled === false,
+);
 
 const stats = await call('/api/admin/stats');
 check('GET /api/admin/stats', stats.status === 200 && stats.body.stats.total === 12, JSON.stringify(stats.body.stats));
@@ -148,6 +215,14 @@ check('setelah logout = 401', after.status === 401);
 
 const afterOrders = await call('/api/admin/orders');
 check('pesanan tanpa sesi = 401', afterOrders.status === 401);
+
+// 7. setelah 2FA dimatikan, login kembali cukup dengan password
+const loginAfterDisable = await call('/api/auth/login', {
+  method: 'POST',
+  body: JSON.stringify({ username: 'admin', password: 'admin' }),
+});
+check('login tanpa kode setelah 2FA dimatikan = 200', loginAfterDisable.status === 200);
+await call('/api/auth/logout', { method: 'POST' });
 
 console.log(results.join('\n'));
 console.log(`\n${results.filter((r) => r.startsWith('PASS')).length}/${results.length} cek lolos`);

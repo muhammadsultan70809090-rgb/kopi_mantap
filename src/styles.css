@@ -4210,3 +4210,68 @@ button.admin-nav-link {
     padding-top: 2.5rem;
   }
 }
+
+/* ==================================================================
+   Keamanan 2FA (dashboard admin)
+   ================================================================== */
+
+.field-hint {
+  font-size: 0.76rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.tag-success {
+  background: rgba(63, 107, 69, 0.14);
+  color: var(--success);
+  border-color: rgba(63, 107, 69, 0.35);
+}
+
+.security-panel .panel-header {
+  align-items: flex-start;
+}
+
+.security-form {
+  display: grid;
+  gap: 14px;
+  max-width: 420px;
+}
+
+.security-form .muted {
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+.security-form .btn {
+  justify-self: start;
+}
+
+.secret-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px dashed rgba(184, 122, 63, 0.45);
+  background: rgba(184, 122, 63, 0.08);
+}
+
+.secret-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--caramel-dark);
+}
+
+.secret-value {
+  font-family: 'DM Sans', monospace;
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+  word-break: break-all;
+  color: var(--espresso);
+}
+
+.secret-box .btn {
+  margin-left: auto;
+}

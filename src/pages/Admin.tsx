@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../api';
-import type { AdminStats, AdminUser, Order, OrderStatus, Product } from '../types';
+import { api, ApiError } from '../api';
+import type { AdminStats, AdminUser, Order, OrderStatus, Product, TwoFactorStatus } from '../types';
 import { CATEGORIES, ORDER_STATUSES, ORDER_STATUS_LABELS, WHATSAPP_NUMBER, formatRupiah } from '../types';
 import { FallbackImage } from '../components/FallbackImage';
 
@@ -47,6 +47,8 @@ const PRESET_IMAGES = [
 function AdminLogin({ onSuccess }: { onSuccess: (admin: AdminUser) => void }) {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('admin');
+  const [code, setCode] = useState('');
+  const [needsCode, setNeedsCode] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -55,9 +57,14 @@ function AdminLogin({ onSuccess }: { onSuccess: (admin: AdminUser) => void }) {
     setBusy(true);
     setError('');
     try {
-      const { admin } = await api.login(username, password);
+      const { admin } = await api.login(username, password, needsCode ? code : undefined);
       onSuccess(admin);
     } catch (err) {
+      // Server minta langkah kedua: tampilkan kolom kode tanpa menganggapnya error.
+      if (err instanceof ApiError && err.code === 'TOTP_REQUIRED') {
+        setNeedsCode(true);
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Login gagal.');
     } finally {
       setBusy(false);
@@ -111,15 +118,37 @@ function AdminLogin({ onSuccess }: { onSuccess: (admin: AdminUser) => void }) {
             />
           </label>
 
+          {needsCode && (
+            <label className="field">
+              <span>Kode 2FA (6 digit)</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]*"
+                maxLength={6}
+                value={code}
+                onChange={(event) => setCode(event.target.value.replace(/\D/g, ''))}
+                autoFocus
+                required
+              />
+              <small className="field-hint">
+                Buka aplikasi authenticator (Google Authenticator, Authy, 1Password) lalu masukkan
+                kode terbaru untuk akun admin ini.
+              </small>
+            </label>
+          )}
+
           {error && <div className="alert alert-error">{error}</div>}
 
           <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
-            {busy ? 'Memeriksa…' : 'Masuk'}
+            {busy ? 'Memeriksa…' : needsCode ? 'Verifikasi & Masuk' : 'Masuk'}
           </button>
 
           <div className="demo-hint">
             <strong>Kredensial demo</strong>
             <span>Username: admin · Password: admin</span>
+            <span>2FA opsional — aktifkan dari menu “Keamanan 2FA” setelah masuk.</span>
           </div>
 
           <Link to="/" className="link-back">
@@ -690,6 +719,199 @@ function OrdersPanel({
 }
 
 /* ------------------------------------------------------------------ */
+/* Keamanan 2FA                                                        */
+/* ------------------------------------------------------------------ */
+
+function SecurityPanel({ notify }: { notify: (type: Toast['type'], text: string) => void }) {
+  const [status, setStatus] = useState<TwoFactorStatus | null>(null);
+  const [secret, setSecret] = useState('');
+  const [otpauth, setOtpauth] = useState('');
+  const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .twoFactor()
+      .then(({ twoFactor }) => alive && setStatus(twoFactor))
+      .catch((err) => alive && setError(err instanceof Error ? err.message : 'Gagal memuat status 2FA.'));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const start = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const result = await api.startTwoFactor();
+      setStatus(result.twoFactor);
+      setSecret(result.secret);
+      setOtpauth(result.otpauth);
+      setCode('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal membuat kunci 2FA.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const enable = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const result = await api.enableTwoFactor(code);
+      setStatus(result.twoFactor);
+      setSecret('');
+      setOtpauth('');
+      setCode('');
+      notify('success', 'Verifikasi dua langkah aktif.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal mengaktifkan 2FA.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const disable = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const result = await api.disableTwoFactor(password, code);
+      setStatus(result.twoFactor);
+      setPassword('');
+      setCode('');
+      notify('success', 'Verifikasi dua langkah dimatikan.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal mematikan 2FA.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copySecret = async () => {
+    try {
+      await navigator.clipboard.writeText(secret);
+      notify('success', 'Kunci 2FA disalin.');
+    } catch {
+      notify('error', 'Browser menolak akses clipboard. Salin kunci secara manual.');
+    }
+  };
+
+  if (!status) {
+    return <div className="admin-loading">Memuat status keamanan…</div>;
+  }
+
+  return (
+    <section className="panel security-panel">
+      <header className="panel-header">
+        <div>
+          <h2>Keamanan 2FA</h2>
+          <p>
+            Lindungi dashboard dengan kode 6 digit dari aplikasi authenticator, di samping password
+            admin.
+          </p>
+        </div>
+        <span className={`tag ${status.enabled ? 'tag-success' : ''}`}>
+          {status.enabled ? 'Aktif' : 'Belum aktif'}
+        </span>
+      </header>
+
+      {error && <div className="alert alert-error">{error}</div>}
+
+      {status.enabled ? (
+        <form className="security-form" onSubmit={disable}>
+          <p className="muted">
+            Setiap login sekarang meminta kode dari authenticator. Untuk mematikan, konfirmasi dengan
+            password admin dan kode 2FA yang sedang berlaku.
+          </p>
+          <label className="field">
+            <span>Password admin</span>
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </label>
+          <label className="field">
+            <span>Kode 2FA (6 digit)</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]*"
+              maxLength={6}
+              value={code}
+              onChange={(event) => setCode(event.target.value.replace(/\D/g, ''))}
+              required
+            />
+          </label>
+          <button type="submit" className="btn btn-danger" disabled={busy}>
+            {busy ? 'Memproses…' : 'Matikan 2FA'}
+          </button>
+        </form>
+      ) : (
+        <div className="security-form">
+          {secret ? (
+            <>
+              <p className="muted">
+                Tambahkan kunci ini ke aplikasi authenticator (pilih “Enter a setup key”), lalu
+                masukkan kode 6 digit yang muncul untuk mengaktifkan.
+              </p>
+              <div className="secret-box">
+                <span className="secret-label">Kunci rahasia</span>
+                <code className="secret-value">{secret}</code>
+                <button type="button" className="btn btn-outline btn-sm" onClick={() => void copySecret()}>
+                  Salin
+                </button>
+              </div>
+              <label className="field">
+                <span>URI otpauth (opsional, untuk impor otomatis)</span>
+                <input type="text" value={otpauth} readOnly onFocus={(event) => event.target.select()} />
+              </label>
+              <form className="security-form" onSubmit={enable}>
+                <label className="field">
+                  <span>Kode 2FA (6 digit)</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    value={code}
+                    onChange={(event) => setCode(event.target.value.replace(/\D/g, ''))}
+                    required
+                  />
+                </label>
+                <button type="submit" className="btn btn-primary" disabled={busy}>
+                  {busy ? 'Memverifikasi…' : 'Aktifkan 2FA'}
+                </button>
+              </form>
+            </>
+          ) : (
+            <>
+              <p className="muted">
+                Verifikasi dua langkah belum aktif. Buat kunci, pindai/ketik di aplikasi
+                authenticator, lalu masukkan kode pertamanya.
+              </p>
+              <button type="button" className="btn btn-primary" onClick={() => void start()} disabled={busy}>
+                {busy ? 'Membuat kunci…' : 'Mulai pengaturan 2FA'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Dashboard                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -704,7 +926,7 @@ function Dashboard({ admin, onLogout }: { admin: AdminUser; onLogout: () => void
   const [busyDelete, setBusyDelete] = useState(false);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('Semua');
-  const [view, setView] = useState<'produk' | 'pesanan'>('produk');
+  const [view, setView] = useState<'produk' | 'pesanan' | 'keamanan'>('produk');
 
   const notify = useCallback((type: Toast['type'], text: string) => {
     setToast({ type, text });
@@ -824,6 +1046,13 @@ function Dashboard({ admin, onLogout }: { admin: AdminUser; onLogout: () => void
             <span>Pesanan</span>
             {stats?.orders?.baru ? <span className="nav-badge">{stats.orders.baru}</span> : null}
           </button>
+          <button
+            type="button"
+            className={`admin-nav-link ${view === 'keamanan' ? 'active' : ''}`}
+            onClick={() => setView('keamanan')}
+          >
+            <span>Keamanan 2FA</span>
+          </button>
         </nav>
 
         <div className="admin-sidebar-footer">
@@ -844,7 +1073,8 @@ function Dashboard({ admin, onLogout }: { admin: AdminUser; onLogout: () => void
         <header className="admin-topbar">
           <div>
             <span className="admin-breadcrumb">
-              Dashboard / {view === 'pesanan' ? 'Pesanan' : 'Ringkasan'}
+              Dashboard /{' '}
+              {view === 'pesanan' ? 'Pesanan' : view === 'keamanan' ? 'Keamanan 2FA' : 'Ringkasan'}
             </span>
             <h1 className="font-display">Halo, {admin.username}!</h1>
           </div>
@@ -863,6 +1093,8 @@ function Dashboard({ admin, onLogout }: { admin: AdminUser; onLogout: () => void
 
           {view === 'pesanan' ? (
             <OrdersPanel notify={notify} onUpdated={() => void refreshStats()} />
+          ) : view === 'keamanan' ? (
+            <SecurityPanel notify={notify} />
           ) : (
           <>
           <section id="ringkasan" className="stats-grid">
