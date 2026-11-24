@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.vite/
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/public/uploads/*
+!data/public/uploads/.gitkeep
+artifacts/
+*.log
+.env
+.DS_Store
