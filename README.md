@@ -32,7 +32,8 @@ cookie `HttpOnly` + `SameSite=Strict` (dan `Secure` saat `NODE_ENV=production`).
 
 - **Frontend**: React 18 + TypeScript + Vite, React Router, CSS kustom.
 - **Backend**: Node.js + Express.
-- **Database**: SQLite via `node:sqlite` (bawaan Node 22+), file di `data/kopimantap.db`.
+- **Database**: Turso (libSQL) saat `TURSO_DATABASE_URL` di-set — dipakai di Vercel — atau SQLite lokal
+  via `node:sqlite` (bawaan Node 22+) di `data/kopimantap.db` untuk pengembangan.
 - **Foto produk**: `public/images/*`; unggahan admin disimpan di `data/public/uploads/`.
 
 ## API
@@ -56,6 +57,55 @@ cookie `HttpOnly` + `SameSite=Strict` (dan `Secure` saat `NODE_ENV=production`).
 
 Nomor admin: **0821-2219-0680** (`wa.me/6282122190680`). Pesan otomatis memuat nama produk,
 ukuran, suhu, jumlah, subtotal, dan total pembayaran.
+
+## Deploy ke Vercel + Turso
+
+Vercel tidak punya disk persisten, jadi database dan foto upload disimpan di [Turso](https://turso.tech)
+(libSQL — SQL, tipe, dan query SQLite tetap sama). Frontend tetap dibuild Vite ke `dist/`, dan
+seluruh API jalan sebagai satu serverless function di `api/index.js`.
+
+### 1. Siapkan database Turso
+
+```bash
+# sekali saja
+curl -sSfL https://get.tur.so/install.sh | bash
+turso auth signup
+turso db create kopi-mantap
+turso db show kopi-mantap --url          # -> libsql://kopi-mantap-xxx.turso.io
+turso db tokens create kopi-mantap       # -> token panjang
+```
+
+### 2. Set environment variable di Vercel
+
+Settings → Environment Variables (centang Production, Preview, Development):
+
+| Nama | Isi |
+| --- | --- |
+| `TURSO_DATABASE_URL` | `libsql://kopi-mantap-xxx.turso.io` |
+| `TURSO_AUTH_TOKEN` | token dari `turso db tokens create` |
+| `ADMIN_PASSWORD` | password admin produksi (opsional, default `admin`) |
+
+Lalu **Redeploy**. Saat request pertama masuk, tabel dibuat otomatis dan 12 produk contoh
+beserta akun admin di-seed kalau database masih kosong.
+
+### 3. Routing (sudah diatur `vercel.json`)
+
+- `/api/*` → `api/index.js` (Express), path asli dikirim lewat query `__path`.
+- `/uploads/*` → `api/index.js`, gambar dibaca dari tabel `uploads`.
+- selain itu → `dist/` (SPA fallback ke `index.html`).
+
+Foto yang diunggah admin (maks 3 MB) disimpan sebagai BLOB di database, bukan di filesystem.
+
+### Uji lokal sebelum push
+
+```bash
+npm run build
+node scripts/vercel-sim.mjs &   # meniru routing vercel.json di :3200
+node scripts/smoke.mjs          # 16 cek API, auth, CRUD, upload, SPA
+```
+
+Mau menguji jalur libSQL tanpa akun Turso? Jalankan server dengan
+`TURSO_DATABASE_URL=file:/tmp/uji.db` — kode async yang sama dengan produksi ikut terpakai.
 
 ## Deploy (host Node dengan disk persisten)
 
